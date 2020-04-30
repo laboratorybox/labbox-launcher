@@ -9,6 +9,7 @@ setuptools.setup(
     author_email="jmagland@flatironinstitute.org",
     description="Launch a labbox container",
     packages=setuptools.find_packages(),
+    include_package_data=True,
     scripts=[
         "bin/labbox-launcher"
     ],
