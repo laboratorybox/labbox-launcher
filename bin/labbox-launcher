@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+
+from typing import Dict, Any
+import os
+import json
+import argparse
+import labbox_launcher as ll
+from labbox_launcher import _update_uid_dir
+
+def main():
+    parser = argparse.ArgumentParser(description='Launch a labbox container', formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('--port', help="Listen port (on the host)", required=True)
+    parser.add_argument('COMMAND', help='Options: run')
+    parser.add_argument('IMAGE', help='Docker image')
+
+    args = parser.parse_args()
+
+    command = args.COMMAND
+
+    if command == 'run':
+        _run_labbox_container(args)
+        return
+    else:
+        raise Exception(f'Unexpected command: {command}')
+
+def _run_labbox_container(args):
+    update_uid_dir = ll._update_uid_dir()
+
+    KACHERY_STORAGE_DIR = os.getenv('KACHERY_STORAGE_DIR')
+    if KACHERY_STORAGE_DIR is None:
+        raise Exception('KACHERY_STORAGE_DIR environment variable not set.')
+
+    NEW_IMAGE = _append_docker_image_name(args.IMAGE, '-updateuid')
+
+    ss = ll.ShellScript(f"""
+        #!/bin/bash
+
+        set -ex
+
+        USER_ID="$(id -u)"
+        GROUP_ID="$(id -g)"
+        USER_INSIDE_CONTAINER="labbox"
+        BASE_IMAGE="{args.IMAGE}"
+        NEW_IMAGE="{NEW_IMAGE}"
+        UPDATE_UID_DIR="{update_uid_dir}"
+        docker build \\
+            -f $UPDATE_UID_DIR/updateUID.Dockerfile \\
+            -t $NEW_IMAGE \\
+            --build-arg BASE_IMAGE=$BASE_IMAGE \\
+            --build-arg REMOTE_USER=$USER_INSIDE_CONTAINER \\
+            --build-arg NEW_UID=$USER_ID \\
+            --build-arg NEW_GID=$GROUP_ID \\
+            --build-arg IMAGE_USER=root \\
+            $UPDATE_UID_DIR
+        
+        docker run \\
+            -p {args.port}:8080 \\
+            -v {KACHERY_STORAGE_DIR}:{KACHERY_STORAGE_DIR} \\
+            -e KACHERY_STORAGE_DIR="{KACHERY_STORAGE_DIR}" \\
+            -it $NEW_IMAGE
+    """, verbose=True)
+
+    ss.start()
+    ss.wait()
+
+def _append_docker_image_name(x, y):
+    a = x.split(':')
+    if len(a) == 1:
+        return x + y
+    elif len(a) == 2:
+        return a[0] + y + ':' + a[1]
+    else:
+        raise Exception(f'Invalid docker image name: {x}')
+
+if __name__ == "__main__":
+    main()
