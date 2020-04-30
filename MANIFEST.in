@@ -1,2 +1,2 @@
-recursive-include labbox-launcher/templates *
-recursive-include labbox-launcher/docker *
+recursive-include labbox_launcher/templates *
+recursive-include labbox_launcher/docker *
