@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 
-from typing import Dict, Any
 import os
-import json
 import argparse
 import labbox_launcher as ll
-from labbox_launcher import _update_uid_dir
 
 def main():
     parser = argparse.ArgumentParser(description='Launch a labbox container', formatter_class=argparse.RawTextHelpFormatter)
@@ -24,13 +21,13 @@ def main():
         raise Exception(f'Unexpected command: {command}')
 
 def _run_labbox_container(args):
-    update_uid_dir = ll._update_uid_dir()
+    inject_user_dir = ll._docker_dir() + '/injectUser'
 
     KACHERY_STORAGE_DIR = os.getenv('KACHERY_STORAGE_DIR')
     if KACHERY_STORAGE_DIR is None:
         raise Exception('KACHERY_STORAGE_DIR environment variable not set.')
 
-    NEW_IMAGE = _append_docker_image_name(args.IMAGE, '-updateuid')
+    NEW_IMAGE = _append_docker_image_name(args.IMAGE, '-nonroot')
 
     ss = ll.ShellScript(f"""
         #!/bin/bash
@@ -40,18 +37,17 @@ def _run_labbox_container(args):
         USER_ID="$(id -u)"
         GROUP_ID="$(id -g)"
         USER_INSIDE_CONTAINER="labbox"
-        BASE_IMAGE="{args.IMAGE}"
+        BASE_IMAGE="{args.IMAGE}" # docker image name
         NEW_IMAGE="{NEW_IMAGE}"
-        UPDATE_UID_DIR="{update_uid_dir}"
+        INJECT_USER_DIR="{inject_user_dir}"
         docker build \\
-            -f $UPDATE_UID_DIR/updateUID.Dockerfile \\
+            -f $INJECT_USER_DIR/injectUser.Dockerfile \\
             -t $NEW_IMAGE \\
             --build-arg BASE_IMAGE=$BASE_IMAGE \\
-            --build-arg REMOTE_USER=$USER_INSIDE_CONTAINER \\
+            --build-arg NEW_USER=$USER_INSIDE_CONTAINER \\
             --build-arg NEW_UID=$USER_ID \\
             --build-arg NEW_GID=$GROUP_ID \\
-            --build-arg IMAGE_USER=root \\
-            $UPDATE_UID_DIR
+            $INJECT_USER_DIR
         
         docker run \\
             -p {args.port}:8080 \\
