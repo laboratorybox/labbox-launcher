@@ -7,6 +7,8 @@ import labbox_launcher as ll
 def main():
     parser = argparse.ArgumentParser(description='Launch a labbox container', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--port', help="Listen port (on the host)", required=True)
+    parser.add_argument('--tmp', help="Optional host directory to mount as /tmp in the container", required=False)
+    parser.add_argument('--data', help="Optional host directory to mount as /data in the container", required=False)
     parser.add_argument('COMMAND', help='Options: run')
     parser.add_argument('IMAGE', help='Docker image')
 
@@ -28,6 +30,26 @@ def _run_labbox_container(args):
         raise Exception('KACHERY_STORAGE_DIR environment variable not set.')
 
     NEW_IMAGE = _append_docker_image_name(args.IMAGE, '-nonroot')
+
+    volume_mounts = []
+    volume_mounts.append(dict(
+        host_dir=KACHERY_STORAGE_DIR,
+        container_dir=KACHERY_STORAGE_DIR
+    ))
+    if args.tmp:
+        volume_mounts.append(dict(
+            host_dir=args.tmp,
+            container_dir='/tmp'
+        ))
+    if args.data:
+        volume_mounts.append(dict(
+            host_dir=args.data,
+            container_dir='/data'
+        ))
+    volume_opts = ' '.join([
+        f'-v {x["host_dir"]}:{x["container_dir"]}'
+        for x in volume_mounts
+    ])
 
     ss = ll.ShellScript(f"""
         #!/bin/bash
@@ -51,7 +73,7 @@ def _run_labbox_container(args):
         
         docker run \\
             -p {args.port}:8080 \\
-            -v {KACHERY_STORAGE_DIR}:{KACHERY_STORAGE_DIR} \\
+            {volume_opts} \\
             -e KACHERY_STORAGE_DIR="{KACHERY_STORAGE_DIR}" \\
             -it $NEW_IMAGE
     """, verbose=True)
