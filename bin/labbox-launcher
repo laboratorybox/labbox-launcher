@@ -5,7 +5,7 @@ import argparse
 import labbox_launcher as ll
 
 def main():
-    parser = argparse.ArgumentParser(description='Launch a labbox container', formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description='Launch a labbox container')
     parser.add_argument('--port', help="Listen port (on the host)", required=True)
     parser.add_argument('--tmp', help="Optional host directory to mount as /tmp in the container", required=False)
     parser.add_argument('--data', help="Optional host directory to mount as /data in the container", required=False)
@@ -37,11 +37,13 @@ def _run_labbox_container(args):
         container_dir=KACHERY_STORAGE_DIR
     ))
     if args.tmp:
+        assert os.path.exists(args.tmp), f'No such directory: {args.tmp}'
         volume_mounts.append(dict(
             host_dir=args.tmp,
             container_dir='/tmp'
         ))
     if args.data:
+        assert os.path.exists(args.data), f'No such directory: {args.data}'
         volume_mounts.append(dict(
             host_dir=args.data,
             container_dir='/data'
