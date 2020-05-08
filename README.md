@@ -21,7 +21,7 @@ pip install --upgrade git+git://github.com/laboratorybox/labbox-launcher
 ```bash
 # Launch the labbox-ephys container and listen on port 15310 (or whatever you choose)
 # replace /some/data/dir by an existing directory on your machine
-labbox-launcher run magland/labbox-ephys:0.1.4-alpha.1 --data /some/data/dir --port 15310
+labbox-launcher run magland/labbox-ephys:0.1.4-alpha.1 --kachery $KACHERY_STORAGE_DIR --data /some/data/dir --port 15310
 
 # Now, point browser to: http://localhost:15310 (disregard the console info if it tells you to go to a different port)
 ```
@@ -32,5 +32,7 @@ This is a wrapper around `docker run` that does the following:
 
 * Builds a new image based on the provided image.
 * Injects a non-root user named labbox into the new image with the same uid/gid as the current user on the host. The labbox user will have sudo privileges inside the container and will be a member of the docker group.
-* Mounts the `$KACHERY_STORAGE_DIR` at run time and sets the KACHERY_STORAGE_DIR environment inside the container.
+* Optionally mounts the kachery storage directory at run time and sets the KACHERY_STORAGE_DIR environment inside the container.
+* Optionally mounts a data directory as `/data` inside the container
+* Optionally mounts a temporary directory as `/tmp` inside the container
 
