@@ -36,7 +36,7 @@ def _run_labbox_container(args):
             host_dir=args.kachery,
             container_dir=args.kachery
         ))
-        environment_variables(dict(
+        environment_variables.append(dict(
             name='KACHERY_STORAGE_DIR',
             value=args.kachery
         ))
