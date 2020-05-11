@@ -14,6 +14,7 @@ setuptools.setup(
         "bin/labbox-launcher"
     ],
     install_requires=[
+        "kachery"
     ],
     classifiers=(
         "Programming Language :: Python :: 3",
