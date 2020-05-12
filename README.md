@@ -21,7 +21,7 @@ pip install --upgrade git+git://github.com/laboratorybox/labbox-launcher
 ```bash
 # Launch the labbox-ephys container and listen on port 15310 (or whatever you choose)
 # replace /some/data/dir by an existing directory on your machine
-labbox-launcher run magland/labbox-ephys:0.1.4-alpha.1 --kachery $KACHERY_STORAGE_DIR --data /some/data/dir --port 15310
+labbox-launcher run magland/labbox-ephys:0.1.4-alpha.2 --kachery $KACHERY_STORAGE_DIR --data /some/data/dir --port 15310
 
 # Now, point browser to: http://localhost:15310 (disregard the console info if it tells you to go to a different port)
 ```
