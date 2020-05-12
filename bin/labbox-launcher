@@ -194,7 +194,7 @@ def start_kachery_server():
     if not host_kachery:
         raise Exception('Not configured to host a kachery server. Use labbox-launcher config-compute-resource')
     dirname = os.getcwd() + '/kachery-server'
-    os.system(f'labbox-launcher run magland/kachery-server:0.1.0 --data {dirname} --port {host_kachery_port}')
+    os.system(f'labbox-launcher run magland/kachery-server:0.1.0 --data {dirname} --docker_run_opts "-p {host_kachery_port}:8080"')
 
 @click.command()
 def config_compute_resource():
@@ -304,13 +304,13 @@ def config_compute_resource():
     
 
 @click.command()
-@click.option('--port', help='Listen port (on the host)')
+@click.option('--docker_run_opts', help='Additional options to send to docker run')
 @click.option('--tmp', help='Optional host directory to mount as /tmp in the container', default=None)
 @click.option('--data', help='Optional host directory to mount as /data in the container', default=None)
 @click.option('--kachery', help='Optional kachery storage directory to use inside the container', default=None)
 @click.option('--command', help='Optional command to run inside the container', default=None)
 @click.argument('image')
-def run(image, port, tmp, data, kachery, command):
+def run(image, docker_run_opts, tmp, data, kachery, command):
     inject_user_dir = ll._docker_dir() + '/injectUser'
 
     new_image = _append_docker_image_name(image, '-nonroot')
@@ -373,10 +373,10 @@ def run(image, port, tmp, data, kachery, command):
             $INJECT_USER_DIR
         
         docker run \\
-            -p {port}:8080 \\
+            {docker_run_opts} \\
             {volume_opts} \\
             {env_opts} \\
-            -it $NEW_IMAGE {command}
+            -it $NEW_IMAGE {commandstr}
     """, verbose=True)
 
     ss.start()
