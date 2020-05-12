@@ -79,4 +79,5 @@ RUN apt-get update && \
     apt-get -y install docker-ce
 
 RUN pip install pylint ipython pytest pytest-cov
+RUN pip install click inquirer
 RUN apt-get install -y nano

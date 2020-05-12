@@ -1,55 +1,341 @@
 #!/usr/bin/env python
 
 import os
-import argparse
+import json
+import click
+import socket
+import traceback
+from copy import deepcopy
+import inquirer
 import labbox_launcher as ll
 
-def main():
-    parser = argparse.ArgumentParser(description='Launch a labbox container')
-    parser.add_argument('--port', help="Listen port (on the host)", required=True)
-    parser.add_argument('--tmp', help="Optional host directory to mount as /tmp in the container", required=False)
-    parser.add_argument('--data', help="Optional host directory to mount as /data in the container", required=False)
-    parser.add_argument('--kachery', help="Optional kachery storage directory to use inside the container", required=False)
-    parser.add_argument('--command', help="Optional command to run inside the container", required=False)
-    parser.add_argument('COMMAND', help='Options: run')
-    parser.add_argument('IMAGE', help='Docker image')
+@click.group()
+def cli():
+    pass
 
-    args = parser.parse_args()
+class ComputeResourceConfig:
+    def __init__(self, config_fname):
+        assert os.path.isfile(config_fname), f'File {config_fname} not found.'
+        try:
+            with open(config_fname, 'r') as f:
+                self._config = json.load(f)
+        except:
+            raise Exception(f'Problem loading configuration file: {config_fname}')
+        self._config_fname = config_fname
+    def get(self, key, default=None):
+        if type(key) == list:
+            if len(key) == 0:
+                raise Exception('Invalid key', key)
+            elif len(key) == 1:
+                return self.get(key=key[0], default=default)
+            else:
+                a = self.get(key=key[:len(key) - 1], default=dict())
+                if type(a) != dict:
+                    return None
+                return a.get(key[len(key) - 1], default)
+        return deepcopy(self._config.get(key, default))
+    def set(self, key, value):
+        if type(key) == list:
+            if len(key) == 0:
+                raise Exception('Invalid key', key)
+            elif len(key) == 1:
+                return self.set(key=key[0], value=value)
+            else:
+                config = self._config
+                for k in key[:len(key)- 1]:
+                    if k not in config or type(config[k]) != dict:
+                        config[k] = dict()
+                    config = config[k]
+                config[key[len(key) - 1]] = value
+                self._write_config()
+        else:
+            self._config[key] = value
+            self._write_config()
+    def unset(self, key):
+        if type(key) == list:
+            if len(key) == 0:
+                raise Exception('Invalid key', key)
+            elif len(key) == 1:
+                return self.unset(key=key[0])
+            else:
+                config = self._config
+                for k in key[:len(key)- 1]:
+                    if k not in config:
+                        return
+                    config = config[k]
+                k_last = key[len(key) - 1]
+                if k_last in config:
+                    del config[k_last]
+                    self._write_config()
+        else:
+            if key in self._config:
+                del self._config[key]
+                self._write_config()
+    def _write_config(self):
+        with open(self._config_fname, 'w') as f:
+            json.dump(self._config, f, indent=4)
 
-    command = args.COMMAND
+class KacheryServerConfig:
+    def __init__(self, config_fname):
+        assert os.path.isfile(config_fname), f'File {config_fname} not found. Use the config-compute-resource command.'
+        try:
+            with open(config_fname, 'r') as f:
+                self._config = json.load(f)
+        except:
+            raise Exception(f'Problem loading configuration file: {config_fname}')
+        self._config_fname = config_fname
+        if 'channels' not in self._config:
+            self._config['channels'] = []
+            self._write_config()
+    def get_channel_config(self, name):
+        for c in self._config['channels']:
+            if c['name'] == name:
+                return deepcopy(c)
+        return None
+    def add_readwrite_channel(self, *, name, password):
+        self._config['channels'].append(dict(
+            name=name,
+            password=password,
+            downloadQuotas=[
+                {
+                    "name": "small",
+                    "maxFileSize": 1e6,
+                    "maxSimultaneous": 2,
+                    "maxNumFilesPerDay": 10000,
+                    "maxNumBytesPerDay": 1e9
+                },
+                {
+                    "name": "medium",
+                    "maxSimultaneous": 2,
+                    "maxFileSize": 100e6,
+                    "maxNumFilesPerDay": 10000,
+                    "maxNumBytesPerDay": 1e9
+                },
+                {
+                    "name": "large",
+                    "maxFileSize": 100e9,
+                    "maxSimultaneous": 2,
+                    "maxNumFilesPerDay": 10000,
+                    "maxNumBytesPerDay": 100e9
+                }
+            ],
+            uploadQuotas=[
+                {
+                    "name": "small",
+                    "maxFileSize": 1e6,
+                    "maxSimultaneous": 10,
+                    "maxNumFilesPerDay": 100000,
+                    "maxNumBytesPerDay": 1000e9
+                },
+                {
+                    "name": "medium",
+                    "maxFileSize": 100e6,
+                    "maxSimultaneous": 10,
+                    "maxNumFilesPerDay": 100000,
+                    "maxNumBytesPerDay": 1000e9
+                },
+                {
+                    "name": "large",
+                    "maxFileSize": 100e9,
+                    "maxSimultaneous": 10,
+                    "maxNumFilesPerDay": 100000,
+                    "maxNumBytesPerDay": 1000e9
+                }
+            ]
+        ))
+        self._write_config()
+    def set_channel_password(self, *, name, password):
+        x = self._find_channel_config(name=name)
+        if x is None:
+            raise Exception(f'Unable to find kachery channel in configuration file: {name}')
+        x['password'] = password
+        self._write_config()
+    def _find_channel_config(self, name):
+        for c in self._config['channels']:
+            if c['name'] == name:
+                return c
+        return None
+    def _write_config(self):
+        with open(self._config_fname, 'w') as f:
+            json.dump(self._config, f, indent=4)
 
-    if command == 'run':
-        _run_labbox_container(args)
-        return
+@click.command()
+def start_compute_resource():
+    config_fname = os.getcwd() + '/compute_resource.json'
+    config = ComputeResourceConfig(config_fname)
+
+    print('')
+    print(f"Compute resource ID: {config.get('compute_resource_id')}")
+    print(f"MongoDB URI: {config.get(['database', 'mongo_url'])}")
+    print(f"Database name: {config.get(['database', 'database'])}")
+    print('')
+
+    os.system('hither-compute-resource start')
+
+@click.command()
+def start_mongodb():
+    config_fname = os.getcwd() + '/compute_resource.json'
+    config = ComputeResourceConfig(config_fname)
+    host_mongodb = config.get('host_mongodb', False)
+    host_mongodb_port = config.get('host_mongodb_port', None)
+    if not host_mongodb:
+        raise Exception('Not configured to host a MongoDB database. Use labbox-launcher config-compute-resource')
+    dirname = os.getcwd() + '/mongodb'
+    if not os.path.isdir(dirname):
+        os.mkdir(dirname)
+    os.system(f'docker run -v {dirname}:/data/db --net host -it mongo mongod --port {host_mongodb_port}')
+
+@click.command()
+def start_kachery_server():
+    config_fname = os.getcwd() + '/compute_resource.json'
+    config = ComputeResourceConfig(config_fname)
+    host_kachery = config.get('host_kachery', False)
+    host_kachery_port = config.get('host_kachery_port', None)
+    if not host_kachery:
+        raise Exception('Not configured to host a kachery server. Use labbox-launcher config-compute-resource')
+    dirname = os.getcwd() + '/kachery-server'
+    os.system(f'labbox-launcher run magland/kachery-server:0.1.0 --data {dirname} --port {host_kachery_port}')
+
+@click.command()
+def config_compute_resource():
+    config_fname = os.getcwd() + '/compute_resource.json'
+    if not os.path.isfile(config_fname):
+        if not inquirer.confirm(f'Create a new configuration file at {config_fname}?', default=True):
+            print('Aborting configuration.')
+            return
+        with open(config_fname, 'w') as f:
+            json.dump({}, f, indent=4)
+    print(f'Loading configuration from {config_fname}')
+    config = ComputeResourceConfig(config_fname)
+
+    # MongoDB
+    print('')
+    print('MongoDB')
+    print('=======')
+    print('You can either connect to an existing MongoDB database or host one on this computer along with your compute resource.')
+    host_mongodb = inquirer.confirm(f'Do you want to host your own MongoDB database on this computer?', default=config.get('host_mongodb', True))
+    if host_mongodb:
+        config.set('host_mongodb', True)
+        host_mongodb_port = int(inquirer.text('Host the MongoDB database on port', default=str(config.get('host_mongodb_port', 27017))))
+        config.set('host_mongodb_port', host_mongodb_port)
+        config.set(['database', 'mongo_url'], f'mongodb://localhost:{host_mongodb_port}')
     else:
-        raise Exception(f'Unexpected command: {command}')
+        config.set('host_mongodb', False)
+        config.unset('host_mongodb_port')
+    
+    # Kachery
+    print('')
+    print('Kachery')
+    print('=======')
+    print('You can either connect to an existing kachery server or host one on this computer along with your compute resource.')
+    host_kachery = inquirer.confirm(f'Do you want to host your own kachery server on this computer?', default=config.get('host_kachery', True))
+    if host_kachery:
+        config.set('host_kachery', True)
+        host_kachery_port = int(inquirer.text('Host the kachery server on port', default=str(config.get('host_kachery_port', 15401))))
+        config.set('host_kachery_port', host_kachery_port)
+        config.set(['kachery', 'url'], f'http://localhost:{host_kachery_port}')
+        kachery_server_dir = os.getcwd() + '/kachery-server'
+        if not os.path.isdir(kachery_server_dir):
+            os.mkdir(kachery_server_dir)
+        kachery_server_config_file = kachery_server_dir + '/kachery.json'
+        if not os.path.isfile(kachery_server_config_file):
+            with open(kachery_server_config_file, 'w') as f:
+                json.dump(dict(), f, indent=4)
+            do_config_kachery_server = True
+        else:
+            do_config_kachery_server = inquirer.confirm('Do you want to configure the kachery server?')
+        if do_config_kachery_server:
+            print('')
+            print('Kachery server config')
+            print('=======')
+            print(f'Loading kachery server configuration from: {kachery_server_config_file}')
+            kachery_server_config = KacheryServerConfig(kachery_server_config_file)
+            if not kachery_server_config.get_channel_config('readwrite'):
+                if inquirer.confirm('Would you like to create a readwrite channel for your kachery server?', default=True):
+                    password = inquirer.password('Enter a password for the readwrite channel on your kachery server')
+                    kachery_server_config.add_readwrite_channel(name='readwrite', password=password)
+            else:
+                if inquirer.confirm('Would you like to reset the password for the readwrite channel on your kachery server?', default=False):
+                    password = inquirer.password('Enter a password for the readwrite channel on your kachery server')
+                    kachery_server_config.set_channel_password(name='readwrite', password=password)
+            print(f'To further configure your kachery server, edit this file: {kachery_server_config_file}')
+            
+    else:
+        config.set('host_kachery', False)
+        config.unset('host_kachery_port')
 
-def _run_labbox_container(args):
+
+    # Hither compute resource server
+    print('')
+    print('Hither compute resource server')
+    print('==============================')
+    compute_resource_id = inquirer.text('Choose a compute resource ID', default=config.get('compute_resource_id', socket.gethostname()))
+    config.set('compute_resource_id', compute_resource_id)
+    mongo_uri = inquirer.text('MongoDB URI', default=config.get(['database', 'mongo_url'], 'mongodb://localhost:27017'))
+    config.set(['database', 'mongo_url'], mongo_uri)
+    mongo_database_name = inquirer.text('MongoDB database name', default=config.get(['database', 'database'], 'labbox'))
+    config.set(['database', 'database'], mongo_database_name)
+    kachery_url = inquirer.text('Kachery URL', default=config.get(['kachery', 'url'], 'http://localhost:15401'))
+    config.set(['kachery', 'url'], kachery_url)
+    kachery_channel = inquirer.text('Kachery channel', default=config.get(['kachery', 'channel'], 'readwrite'))
+    config.set(['kachery', 'channel'], kachery_channel)
+    kachery_password = inquirer.password(f'Kachery password for channel {kachery_channel}', default=config.get(['kachery', 'password'], ''))
+    config.set(['kachery', 'password'], kachery_password)
+    job_handler_type = inquirer.list_input('Job handler type', choices=['parallel', 'slurm'], default=config.get(['job_handler', 'type'], 'parallel'))
+    if job_handler_type != config.get(['job_handler', 'type'], 'parallel'):
+        config.unset(['job_handler', 'config'])
+    config.set(['job_handler', 'type'], job_handler_type)
+    if job_handler_type == 'parallel':
+        num_workers = int(inquirer.text('num_workers', default=config.get(['job_handler', 'config', 'num_workers'], 4)))
+        config.set(['job_handler', 'config', 'num_workers'], num_workers)
+    else:
+        raise Exception(f'Job handler type not yet supported by this config utility: {job_handler_type}')
+
+    print('')
+    print(f'To further configure your compute resource server, rerun this utility, or directly edit this file: {config_fname}')
+    print('')
+    print('')
+    print('You can now start the compute resource server by running the following in separate terminals in this working directory:')
+    if config.get('host_mongodb', False):
+        print('labbox-launcher start-mongodb')
+    if config.get('host_kachery', False):
+        print('labbox-launcher start-kachery-server')
+    print('labbox-launcher start-compute-resource')
+    
+
+@click.command()
+@click.option('--port', help='Listen port (on the host)')
+@click.option('--tmp', help='Optional host directory to mount as /tmp in the container', default=None)
+@click.option('--data', help='Optional host directory to mount as /data in the container', default=None)
+@click.option('--kachery', help='Optional kachery storage directory to use inside the container', default=None)
+@click.option('--command', help='Optional command to run inside the container', default=None)
+@click.argument('image')
+def run(image, port, tmp, data, kachery, command):
     inject_user_dir = ll._docker_dir() + '/injectUser'
 
-    NEW_IMAGE = _append_docker_image_name(args.IMAGE, '-nonroot')
+    new_image = _append_docker_image_name(image, '-nonroot')
 
     volume_mounts = []
     environment_variables = []
-    if args.kachery:
+    if kachery is not None:
         volume_mounts.append(dict(
-            host_dir=args.kachery,
-            container_dir=args.kachery
+            host_dir=kachery,
+            container_dir=kachery
         ))
         environment_variables.append(dict(
             name='KACHERY_STORAGE_DIR',
-            value=args.kachery
+            value=kachery
         ))
-    if args.tmp:
-        assert os.path.exists(args.tmp), f'No such directory: {args.tmp}'
+    if tmp is not None:
+        assert os.path.exists(tmp), f'No such directory: {tmp}'
         volume_mounts.append(dict(
-            host_dir=args.tmp,
+            host_dir=tmp,
             container_dir='/tmp'
         ))
-    if args.data:
-        assert os.path.exists(args.data), f'No such directory: {args.data}'
+    if data is not None:
+        assert os.path.exists(data), f'No such directory: {data}'
         volume_mounts.append(dict(
-            host_dir=args.data,
+            host_dir=data,
             container_dir='/data'
         ))
     volume_opts = ' '.join([
@@ -61,10 +347,10 @@ def _run_labbox_container(args):
         for x in environment_variables
     ])
 
-    if args.command:
-        command = args.command
+    if command is not None:
+        commandstr = command
     else:
-        command = ''
+        commandstr = ''
 
     ss = ll.ShellScript(f"""
         #!/bin/bash
@@ -74,8 +360,8 @@ def _run_labbox_container(args):
         USER_ID="$(id -u)"
         GROUP_ID="$(id -g)"
         USER_INSIDE_CONTAINER="labbox"
-        BASE_IMAGE="{args.IMAGE}" # docker image name
-        NEW_IMAGE="{NEW_IMAGE}"
+        BASE_IMAGE="{image}" # docker image name
+        NEW_IMAGE="{new_image}"
         INJECT_USER_DIR="{inject_user_dir}"
         docker build \\
             -f $INJECT_USER_DIR/injectUser.Dockerfile \\
@@ -87,7 +373,7 @@ def _run_labbox_container(args):
             $INJECT_USER_DIR
         
         docker run \\
-            -p {args.port}:8080 \\
+            -p {port}:8080 \\
             {volume_opts} \\
             {env_opts} \\
             -it $NEW_IMAGE {command}
@@ -105,5 +391,11 @@ def _append_docker_image_name(x, y):
     else:
         raise Exception(f'Invalid docker image name: {x}')
 
+cli.add_command(config_compute_resource)
+cli.add_command(start_compute_resource)
+cli.add_command(start_mongodb)
+cli.add_command(start_kachery_server)
+cli.add_command(run)
+
 if __name__ == "__main__":
-    main()
+    cli()

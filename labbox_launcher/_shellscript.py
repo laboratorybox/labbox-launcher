@@ -60,9 +60,6 @@ class ShellScript():
         self.write(script_path)
         cmd = script_path
         if self._verbose:
-            print('---------------------------------------------------------------------------')
-            print(self._script)
-            print('---------------------------------------------------------------------------')
             print('RUNNING SHELL SCRIPT: ' + cmd)
         self._start_time = time.time()
         if self._redirect_output_to_stdout:
