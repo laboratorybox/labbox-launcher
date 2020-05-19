@@ -4,7 +4,7 @@ pkg_name = "labbox-launcher"
 
 setuptools.setup(
     name=pkg_name,
-    version="0.1.0",
+    version="0.1.1",
     author="Jeremy Magland",
     author_email="jmagland@flatironinstitute.org",
     description="Launch a labbox container",

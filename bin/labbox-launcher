@@ -194,7 +194,7 @@ def start_kachery_server():
     if not host_kachery:
         raise Exception('Not configured to host a kachery server. Use labbox-launcher config-compute-resource')
     dirname = os.getcwd() + '/kachery-server'
-    os.system(f'labbox-launcher run magland/kachery-server:0.1.0 --data {dirname} --docker_run_opts "-p {host_kachery_port}:8080"')
+    os.system(f'labbox-launcher run magland/kachery-server:0.1.1 --data {dirname} --docker_run_opts "-p {host_kachery_port}:8080"')
 
 @click.command()
 def config_compute_resource():
