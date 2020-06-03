@@ -4,6 +4,7 @@ import os
 import json
 import click
 import socket
+import sys
 import traceback
 from copy import deepcopy
 import inquirer
@@ -313,7 +314,12 @@ def config_compute_resource():
 def run(image, docker_run_opts, tmp, data, kachery, command):
     inject_user_dir = ll._docker_dir() + '/injectUser'
 
-    new_image = _append_docker_image_name(image, '-nonroot')
+    if sys.platform == "linux" or sys.platform == "linux2":
+        new_image = _append_docker_image_name(image, '-nonroot')
+        do_inject_user = True
+    else:
+        new_image = image
+        do_inject_user = False
 
     volume_mounts = []
     environment_variables = []
@@ -352,32 +358,47 @@ def run(image, docker_run_opts, tmp, data, kachery, command):
     else:
         commandstr = ''
 
-    ss = ll.ShellScript(f"""
-        #!/bin/bash
+    if do_inject_user:
+        ss = ll.ShellScript(f"""
+            #!/bin/bash
 
-        set -ex
+            set -ex
 
-        USER_ID="$(id -u)"
-        GROUP_ID="$(id -g)"
-        USER_INSIDE_CONTAINER="labbox"
-        BASE_IMAGE="{image}" # docker image name
-        NEW_IMAGE="{new_image}"
-        INJECT_USER_DIR="{inject_user_dir}"
-        docker build \\
-            -f $INJECT_USER_DIR/injectUser.Dockerfile \\
-            -t $NEW_IMAGE \\
-            --build-arg BASE_IMAGE=$BASE_IMAGE \\
-            --build-arg NEW_USER=$USER_INSIDE_CONTAINER \\
-            --build-arg NEW_UID=$USER_ID \\
-            --build-arg NEW_GID=$GROUP_ID \\
-            $INJECT_USER_DIR
-        
-        docker run \\
-            {docker_run_opts} \\
-            {volume_opts} \\
-            {env_opts} \\
-            -it $NEW_IMAGE {commandstr}
-    """, verbose=True)
+            USER_ID="$(id -u)"
+            GROUP_ID="$(id -g)"
+            USER_INSIDE_CONTAINER="labbox"
+            BASE_IMAGE="{image}" # docker image name
+            NEW_IMAGE="{new_image}"
+            INJECT_USER_DIR="{inject_user_dir}"
+            docker build \\
+                -f $INJECT_USER_DIR/injectUser.Dockerfile \\
+                -t $NEW_IMAGE \\
+                --build-arg BASE_IMAGE=$BASE_IMAGE \\
+                --build-arg NEW_USER=$USER_INSIDE_CONTAINER \\
+                --build-arg NEW_UID=$USER_ID \\
+                --build-arg NEW_GID=$GROUP_ID \\
+                $INJECT_USER_DIR
+            
+            docker run \\
+                {docker_run_opts} \\
+                {volume_opts} \\
+                {env_opts} \\
+                -it $NEW_IMAGE {commandstr}
+        """, verbose=True)
+    else:
+        ss = ll.ShellScript(f"""
+            #!/bin/bash
+
+            set -ex
+
+            NEW_IMAGE="{new_image}"
+            
+            docker run \\
+                {docker_run_opts} \\
+                {volume_opts} \\
+                {env_opts} \\
+                -it $NEW_IMAGE {commandstr}
+        """, verbose=True)
 
     ss.start()
     ss.wait()
