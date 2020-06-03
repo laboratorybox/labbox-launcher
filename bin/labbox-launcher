@@ -314,12 +314,15 @@ def config_compute_resource():
 def run(image, docker_run_opts, tmp, data, kachery, command):
     inject_user_dir = ll._docker_dir() + '/injectUser'
 
-    if sys.platform == "linux" or sys.platform == "linux2":
-        new_image = _append_docker_image_name(image, '-nonroot')
-        do_inject_user = True
-    else:
-        new_image = image
-        do_inject_user = False
+    new_image = _append_docker_image_name(image, '-nonroot')
+    do_inject_user = True
+
+    # if sys.platform == "linux" or sys.platform == "linux2":
+    #     new_image = _append_docker_image_name(image, '-nonroot')
+    #     do_inject_user = True
+    # else:
+    #     new_image = image
+    #     do_inject_user = False
 
     volume_mounts = []
     environment_variables = []
