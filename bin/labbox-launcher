@@ -368,7 +368,8 @@ def run(image, docker_run_opts, tmp, data, kachery, command):
             set -ex
 
             USER_ID="$(id -u)"
-            GROUP_ID="$(id -g)"
+            # GROUP_ID="$(id -g)"
+            GROUP_ID="$(id -u)"
             USER_INSIDE_CONTAINER="labbox"
             BASE_IMAGE="{image}" # docker image name
             NEW_IMAGE="{new_image}"
