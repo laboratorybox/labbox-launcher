@@ -317,6 +317,9 @@ def run(image, docker_run_opts, tmp, data, kachery, command):
     new_image = _append_docker_image_name(image, '-nonroot')
     do_inject_user = True
 
+    if docker_run_opts is None:
+        docker_run_opts = ''
+
     # if sys.platform == "linux" or sys.platform == "linux2":
     #     new_image = _append_docker_image_name(image, '-nonroot')
     #     do_inject_user = True
@@ -368,8 +371,11 @@ def run(image, docker_run_opts, tmp, data, kachery, command):
             set -ex
 
             USER_ID="$(id -u)"
+
+            # Use the user id for the primary group rather than the group id, because we were running into conflict on mac (primary group = 20)
             # GROUP_ID="$(id -g)"
             GROUP_ID="$(id -u)"
+
             USER_INSIDE_CONTAINER="labbox"
             BASE_IMAGE="{image}" # docker image name
             NEW_IMAGE="{new_image}"
